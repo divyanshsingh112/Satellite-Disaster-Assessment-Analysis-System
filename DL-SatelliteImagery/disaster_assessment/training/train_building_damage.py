@@ -13,7 +13,7 @@ Supports:
 import argparse
 import os
 import sys
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -33,6 +33,7 @@ from disaster_assessment.models.building_damage_model import (
     NUM_DAMAGE_CLASSES,
     BuildingDamageUNet,
 )
+from disaster_assessment.terminal_ui import DryRunTrainingUI
 
 # Default locations, resolved from the repository root so the script works from any cwd.
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -126,6 +127,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     scaler: Optional[torch.amp.GradScaler] = None,
+    on_batch: Optional[Callable[[], None]] = None,
 ) -> Tuple[float, Dict[str, float]]:
     model.train()
     total_loss = 0.0
@@ -158,6 +160,8 @@ def train_one_epoch(
         preds = torch.argmax(logits, dim=1)
         all_preds.append(preds.detach().cpu())
         all_targets.append(mask.detach().cpu())
+        if on_batch is not None:
+            on_batch()
 
     avg_loss = total_loss / max(len(loader), 1)
     metrics = compute_metrics(torch.cat(all_preds), torch.cat(all_targets))
@@ -203,6 +207,7 @@ def train_building_damage(
     resume_path: Optional[str] = None,
     device: Optional[torch.device] = None,
     synthetic_data: bool = False,
+    ui: Optional[DryRunTrainingUI] = None,
 ) -> str:
     """
     Main training function. Returns path to best saved model weights.
@@ -221,6 +226,8 @@ def train_building_damage(
     if len(train_loader.dataset) == 0:
         raise ValueError(f"No training data found in {data_dir}/train")
 
+    val_samples = len(val_loader.dataset) if val_loader is not None else 0
+
     model = BuildingDamageUNet(num_classes=NUM_DAMAGE_CLASSES).to(device)
     criterion = CombinedDamageLoss(num_classes=NUM_DAMAGE_CLASSES)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
@@ -231,40 +238,78 @@ def train_building_damage(
     start_epoch = 1
     best_val_iou = 0.0
 
+    resumed_from: Optional[str] = None
     if resume_path and os.path.isfile(resume_path):
         ckpt = torch.load(resume_path, map_location=device, weights_only=True)
         model.load_state_dict(ckpt["model_state_dict"])
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         start_epoch = ckpt.get("epoch", 0) + 1
         best_val_iou = ckpt.get("best_val_iou", 0.0)
-        print(f"[Training] Resumed from {resume_path} (epoch {start_epoch})")
+        resumed_from = resume_path
 
-    print(f"\n{'='*60}")
-    print("  BUILDING DAMAGE ASSESSMENT TRAINING PIPELINE")
-    print(f"  Device: {device} | Epochs: {epochs} | Batch Size: {batch_size}")
-    print(f"  Training samples: {len(train_loader.dataset)}")
-    print(f"{'='*60}\n")
+    if ui is not None:
+        ui.start(
+            device=device,
+            epochs=epochs,
+            batch_size=batch_size,
+            train_samples=len(train_loader.dataset),
+            val_samples=val_samples,
+            resume_path=resumed_from,
+            start_epoch=start_epoch,
+        )
+    else:
+        if resumed_from:
+            print(f"[Training] Resumed from {resumed_from} (epoch {start_epoch})")
+        print(f"\n{'='*60}")
+        print("  BUILDING DAMAGE ASSESSMENT TRAINING PIPELINE")
+        print(f"  Device: {device} | Epochs: {epochs} | Batch Size: {batch_size}")
+        print(f"  Training samples: {len(train_loader.dataset)}")
+        print(f"{'='*60}\n")
 
     for epoch in range(start_epoch, epochs + 1):
-        train_loss, train_metrics = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, scaler
-        )
+        if ui is not None:
+            with ui.epoch_progress(epoch, epochs, len(train_loader)) as advance:
+                train_loss, train_metrics = train_one_epoch(
+                    model, train_loader, criterion, optimizer, device, scaler, on_batch=advance
+                )
+        else:
+            train_loss, train_metrics = train_one_epoch(
+                model, train_loader, criterion, optimizer, device, scaler
+            )
         scheduler.step()
 
         val_msg = ""
+        val_loss_val: Optional[float] = None
+        val_iou_val: Optional[float] = None
+        val_acc_val: Optional[float] = None
         val_iou = train_metrics["mean_iou"]
         val_f1 = train_metrics["macro_f1"]
         if val_loader is not None and len(val_loader.dataset) > 0:
             val_loss, val_metrics = evaluate(model, val_loader, criterion, device)
             val_iou = val_metrics["mean_iou"]
             val_f1 = val_metrics["macro_f1"]
+            val_loss_val = val_loss
+            val_iou_val = val_iou
+            val_acc_val = val_metrics["accuracy"]
             val_msg = f" | Val Loss: {val_loss:.4f} | Val mIoU: {val_iou:.1f}% | Val Acc: {val_metrics['accuracy']:.1f}%"
 
-        print(
-            f"Epoch [{epoch:02d}/{epochs:02d}] "
-            f"Train Loss: {train_loss:.4f} | Train mIoU: {train_metrics['mean_iou']:.1f}% | Train Acc: {train_metrics['accuracy']:.1f}%"
-            f"{val_msg}"
-        )
+        if ui is not None:
+            ui.log_epoch(
+                epoch=epoch,
+                epochs=epochs,
+                train_loss=train_loss,
+                train_miou=train_metrics["mean_iou"],
+                train_acc=train_metrics["accuracy"],
+                val_loss=val_loss_val,
+                val_miou=val_iou_val,
+                val_acc=val_acc_val,
+            )
+        else:
+            print(
+                f"Epoch [{epoch:02d}/{epochs:02d}] "
+                f"Train Loss: {train_loss:.4f} | Train mIoU: {train_metrics['mean_iou']:.1f}% | Train Acc: {train_metrics['accuracy']:.1f}%"
+                f"{val_msg}"
+            )
 
         # Checkpoint saving. "metrics" uses 0-1 fractions, as read by
         # ModelValidator's quality gates.
@@ -293,7 +338,15 @@ def train_building_damage(
             latest_ckpt_path,
         )
 
-    print(f"\n✓ Training Complete. Best model saved to: {best_model_path}")
+    if ui is not None:
+        ui.finish(
+            device=device,
+            train_samples=len(train_loader.dataset),
+            val_samples=val_samples,
+            best_model_path=best_model_path,
+        )
+    else:
+        print(f"\n✓ Training Complete. Best model saved to: {best_model_path}")
     return best_model_path
 
 
@@ -312,12 +365,19 @@ if __name__ == "__main__":
         action="store_true",
         help="Generate synthetic data and train 1 epoch (writes under runs/dry_run/ by default)",
     )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Output plain text without Rich styling",
+    )
     args = parser.parse_args()
 
+    dry_run_ui: Optional[DryRunTrainingUI] = None
     if args.dry_run:
         args.data_dir = args.data_dir or DRY_RUN_DATA_DIR
         args.output_dir = args.output_dir or DRY_RUN_OUTPUT_DIR
-        print(f"[Dry Run] Generating synthetic training data in {args.data_dir} ...")
+        dry_run_ui = DryRunTrainingUI(plain=args.plain, data_dir=args.data_dir)
+        dry_run_ui.show_data_generation(args.data_dir)
         create_synthetic_damage_data(args.data_dir, num_samples=8)
         args.epochs = 1
     args.data_dir = args.data_dir or DEFAULT_DATA_DIR
@@ -331,4 +391,5 @@ if __name__ == "__main__":
         lr=args.lr,
         resume_path=args.resume,
         synthetic_data=args.dry_run,
+        ui=dry_run_ui,
     )

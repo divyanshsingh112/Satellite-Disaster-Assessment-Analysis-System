@@ -161,9 +161,10 @@ def cmd_validate_models(args):
 def cmd_feature_status(args):
     """Show feature availability status."""
     from disaster_assessment.feature_status import check_feature_status
+    from disaster_assessment.terminal_ui import render_feature_status
 
     registry = check_feature_status()
-    print(registry.summary_table())
+    render_feature_status(registry, plain=getattr(args, "plain", False))
 
     if args.json:
         features = {}
@@ -211,6 +212,7 @@ Examples:
     # feature-status command
     status_parser = subparsers.add_parser("feature-status", help="Show feature availability")
     status_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    status_parser.add_argument("--plain", action="store_true", help="Output plain text without Rich styling")
 
     args = parser.parse_args()
 

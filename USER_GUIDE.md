@@ -1,318 +1,206 @@
-# Satellite Disaster Assessment — User Execution Guide
+# User Guide — Satellite Disaster Assessment & Analysis System
 
-Welcome to the **Satellite Disaster Assessment & Remote Sensing Intelligence System**, an end-to-end deep learning platform for automated post-disaster damage assessment, surface change detection, flood inundation mapping, and multi-hazard severity scoring.
-
-This guide provides step-by-step instructions for environment configuration, Web UI launching, command-line utilities, training pipelines, and troubleshooting.
+This guide walks through running the CLI tools, interpreting the terminal reports, training the building-damage model, launching the Gradio dashboard, and running automated tests.
 
 ---
 
-## 📖 Table of Contents
+## 1. Environment & Quick Check
 
-1. [Prerequisites & Environment Setup](#1-prerequisites--environment-setup)
-2. [Quick Start Guide](#2-quick-start-guide)
-3. [Satellite Imagery & Disaster Assessment (`DL-SatelliteImagery`)](#3-satellite-imagery--disaster-assessment-dl-satelliteimagery)
-   - [3.1 Baseline Land-Cover Segmentation (6 Classes)](#31-baseline-land-cover-segmentation-6-classes)
-   - [3.2 Satellite Disaster Assessment System (Phase 1 & Phase 2)](#32-satellite-disaster-assessment-system-phase-1--phase-2)
-   - [3.3 Trained Building Damage Assessment (4 Classes)](#33-trained-building-damage-assessment-4-classes)
-   - [3.4 Georeferenced Flood Area Engine (GeoTIFF & GSD)](#34-georeferenced-flood-area-engine-geotiff--gsd)
-   - [3.5 Launching the Unified Disaster Gradio Web UI](#35-launching-the-unified-disaster-gradio-web-ui)
-   - [3.6 Training the Building Damage Model](#36-training-the-building-damage-model)
-   - [3.7 Running Automated Verification Tests](#37-running-automated-verification-tests)
-   - [3.8 Real Satellite Imagery Reference (`sample_images/`)](#38-real-satellite-imagery-reference-sample_images)
-   - [3.9 Python API Usage Example](#39-python-api-usage-example)
-4. [Troubleshooting & Common Issues](#4-troubleshooting--common-issues)
+Activate the virtual environment before running commands, or invoke `.\.venv\Scripts\python.exe` directly on Windows:
 
----
-
-## 1. Prerequisites & Environment Setup
-
-### System Requirements
-- **Operating System**: Windows 10/11, Ubuntu 20.04/22.04, or macOS (Intel / Apple Silicon M-Series).
-- **Python Version**: Python **3.10** or **3.11** (Active environment: Python 3.11).
-- **Package Manager**: [Conda](https://docs.conda.io/) or Python standard `venv`.
-- **GPU Acceleration**: NVIDIA GPU with CUDA 12.1 / 11.8 (tested on NVIDIA GeForce GTX 1650 4GB VRAM).
-
-### Setting Up a Virtual Environment
-
-#### Option A: Using Conda
-```bash
-conda create -n deepworks python=3.11 -y
-conda activate deepworks
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+python --version
 ```
 
-#### Option B: Using Python `venv` (Current Setup)
-```powershell
-# Windows (PowerShell)
-.\.venv\Scripts\Activate.ps1
-
+```bash
 # Linux / macOS
 source .venv/bin/activate
+python --version
 ```
 
-### Installing Dependencies
-
-Run the following command from the repository root directory (`d:\var-codes\satelite`):
+Verify PyTorch and CUDA availability (optional GPU acceleration):
 
 ```powershell
-# Core PyTorch and Remote Sensing Stack via requirements.txt
-pip install -r requirements.txt
-
-# Or install package in editable mode with all dependencies
-pip install -e .
+.\.venv\Scripts\python.exe -c "import torch; print('torch:', torch.__version__, 'cuda:', torch.cuda.is_available())"
 ```
 
 ---
 
-## 2. Quick Start Guide
+## 2. Running PRE/POST Disaster Analysis (`cli.py`)
 
-1. **Open PowerShell / Terminal** in the project directory:
-   ```powershell
-   cd d:\var-codes\satelite
-   ```
-
-2. **Verify GPU / CUDA Acceleration**:
-   ```powershell
-   .\.venv\Scripts\python.exe -c "import torch; print('PyTorch:', torch.__version__, '| CUDA Available:', torch.cuda.is_available(), '| GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
-   ```
-
-3. **Launch the Unified Disaster Web UI**:
-   ```powershell
-   .\.venv\Scripts\python.exe DL-SatelliteImagery\disaster_gradio_app.py
-   ```
-   Open `http://localhost:7860` in your web browser.
-
-4. **Launch JupyterLab** (for interactive notebooks):
-   ```powershell
-   jupyter lab
-   ```
-   Access notebooks at `http://localhost:8888`.
-
----
-
-## 3. Satellite Imagery & Disaster Assessment (`DL-SatelliteImagery`)
-
-The **`DL-SatelliteImagery`** module contains the complete land-cover segmentation notebooks as well as the **Satellite Disaster Assessment and Analysis System (Phase 1 & Phase 2)**.
-
-```
-DL-SatelliteImagery/
-├── [ALL 8 ORIGINAL NOTEBOOKS PRESERVED]
-│
-├── disaster_assessment/
-│   ├── models/
-│   │   ├── base_unet.py              # Shared encoder/decoder (16→32→64→128→256)
-│   │   ├── siamese_unet.py           # Change detection (~3.54M params)
-│   │   ├── flood_unet.py             # Binary flood mapping (~2.36M params)
-│   │   └── building_damage_model.py  # 4-class Siamese damage network (~3.84M params)
-│   │
-│   ├── datasets/
-│   │   └── building_damage_dataset.py # xBD / triplet loader with augmentations
-│   │
-│   ├── training/
-│   │   └── train_building_damage.py   # Training loop (Dice + CE loss, mixed precision)
-│   │
-│   ├── inference/
-│   │   └── building_damage_inference.py # Dual-mode engine (Trained vs. Estimated)
-│   │
-│   ├── analytics/
-│   │   ├── geospatial_area.py        # GeoTIFF metadata & geodesic resolution engine
-│   │   ├── area_calculator.py        # Metric / percentage area calculator
-│   │   ├── damage_metrics.py         # Structural change heuristic (Phase 1)
-│   │   ├── land_change_metrics.py    # 6-class land cover transition matrix
-│   │   └── severity_engine.py        # Configurable 0-100 severity scorer
-│   │
-│   ├── visualization/
-│   │   ├── overlays.py               # Land cover, change, flood & 4-class damage overlays
-│   │   ├── heatmap.py                # Fused multi-hazard disaster heatmaps
-│   │   └── comparison.py             # Side-by-side & grid comparison panels
-│   │
-│   └── pipeline/
-│       └── disaster_analyzer.py      # Unified 10-step orchestrator pipeline
-│
-└── disaster_gradio_app.py            # Unified 3-tab Gradio Web UI
-```
-
----
-
-### 3.1 Baseline Land-Cover Segmentation (6 Classes)
-
-The baseline model classifies satellite image pixels into 6 land-cover categories:
-
-| Class Code | Label | Color Code | Description |
-| :---: | :--- | :---: | :--- |
-| **`0`** | **`Water`** | `#E2A929` | Water bodies, rivers, lakes, flooded zones |
-| **`1`** | **`Land`** | `#8429F6` | Bare soil, unbuilt terrain |
-| **`2`** | **`Road`** | `#6EC1E4` | Transportation networks, highways |
-| **`3`** | **`Building`** | `#3C1098` | Structural footprints, urban areas |
-| **`4`** | **`Vegetation`** | `#FEDD3A` | Forests, green canopy, agricultural fields |
-| **`5`** | **`Unlabeled`** | `#9B9B9B` | Background / unclassified pixels |
-
-#### Notebook Reference:
-- **Patching & Masking**: [`DL-SatelliteImagery/Satellite_Imagery_Segmentation.ipynb`](./DL-SatelliteImagery/Satellite_Imagery_Segmentation.ipynb)
-- **Base Training**: [`DL-SatelliteImagery/Satellite_Imagery_DeepLearning-Base.ipynb`](./DL-SatelliteImagery/Satellite_Imagery_DeepLearning-Base.ipynb)
-- **Local Diagnostics**: [`DL-SatelliteImagery/Satellite_Imagery_DeepLearning-LocalDiag.ipynb`](./DL-SatelliteImagery/Satellite_Imagery_DeepLearning-LocalDiag.ipynb)
-- **Model Checkpoints**: [`DL-SatelliteImagery/Satellite_Imagery_DeepLearning-SaveLoadModel.ipynb`](./DL-SatelliteImagery/Satellite_Imagery_DeepLearning-SaveLoadModel.ipynb)
-- **WandB Tracking**: [`DL-SatelliteImagery/Satellite_Imagery_DeepLearning-WandB.ipynb`](./DL-SatelliteImagery/Satellite_Imagery_DeepLearning-WandB.ipynb)
-- **Activation Heatmaps**: [`DL-SatelliteImagery/Satellite_Imagery_DeepLearning_ActivationHeatmap.ipynb`](./DL-SatelliteImagery/Satellite_Imagery_DeepLearning_ActivationHeatmap.ipynb)
-- **Interactive Web App**: [`DL-SatelliteImagery/Satellite_segmentation_Prediction-GradioUI.ipynb`](./DL-SatelliteImagery/Satellite_segmentation_Prediction-GradioUI.ipynb)
-
----
-
-### 3.2 Satellite Disaster Assessment System (Phase 1 & Phase 2)
-
-The system compares pre- and post-disaster satellite images to produce:
-1. **Surface Change Detection**: Highlighted binary difference mask using `SiameseUNet`.
-2. **Flood Inundation**: Flooded area segmentation using `FloodUNet`.
-3. **Vegetation Loss & Water Expansion**: Calculated via class-to-class transition matrices.
-4. **Disaster Heatmap**: Multi-hazard fused intensity map with Gaussian smoothing.
-5. **Severity Scoring Engine**: Configurable 0–100 score (`LOW`, `MODERATE`, `HIGH`, `CRITICAL`) configured in [`severity_config.yaml`](file:///d:/var-codes/satelite/DL-SatelliteImagery/disaster_assessment/configs/severity_config.yaml).
-
----
-
-### 3.3 Trained Building Damage Assessment (4 Classes)
-
-The system supports two distinct damage assessment modes:
-
-#### Mode 1: Trained Neural Model (4 Classes)
-When trained weights are loaded (`best_damage_model.pth`), the Siamese `BuildingDamageUNet` classifies damage into:
-- 🟢 **`0: Undamaged`** (`#00C800`)
-- 🟡 **`1: Minor Damage`** (`#FFD700`)
-- 🟠 **`2: Major Damage`** (`#FF8C00`)
-- 🔴 **`3: Destroyed`** (`#FF0000`)
-
-#### Mode 2: Estimated Structural Change (Fallback)
-If trained weights are unavailable or explicit estimated mode is requested, the system compares pre/post building masks using structural change heuristics:
-- `Undamaged`, `Possible Damage`, `Severe Damage`
-- Clearly labeled as *"Estimated damage based on structural change"*.
-
----
-
-### 3.4 Georeferenced Flood Area Engine (GeoTIFF & GSD)
-
-Supports 3 real-world area calculation modes:
-
-1. **Mode 1: GeoTIFF (.tif/.tiff)**
-   - Automatically reads CRS and affine transform using `rasterio`.
-   - **Projected CRS** (e.g. UTM): Uses direct meter resolution.
-   - **Geographic CRS** (EPSG:4326): Calculates geodesic metric resolution using central scene latitude ($dx = \cos(\text{lat}) \cdot 111319.5\text{ m}$).
-2. **Mode 2: User-Supplied Resolution (`meters_per_pixel`)**
-   - For standard JPG/PNG images (e.g. `meters_per_pixel=0.5` for WorldView-3). Computes exact $\text{m}^2$ and $\text{km}^2$.
-3. **Mode 3: No Georeference Available**
-   - Reports pixel counts and percentages only. **Never invents $\text{km}^2$**.
-
----
-
-### 3.5 Launching the Unified Disaster Gradio Web UI
-
-To launch the multi-tab interactive web interface:
+### Basic Usage
 
 ```powershell
-.\.venv\Scripts\python.exe DL-SatelliteImagery\disaster_gradio_app.py
-```
-Open `http://localhost:7860` in your browser:
-- **Tab 1: Land-Cover Segmentation**: Upload a single image for 6-class color overlay.
-- **Tab 2: Disaster Assessment**: Upload PRE and POST disaster images. Select Damage Mode (`Auto`, `Trained`, `Estimated`), optionally input Ground Resolution (`meters/pixel`) or upload a GeoTIFF raster.
-- **Tab 3: Quick Change Detection**: Fast binary surface change highlighting.
-
----
-
-### 3.6 Training the Building Damage Model
-
-#### 1. Expected Dataset Directory Structure (xBD format):
-```
-data/damage_dataset/
-├── train/
-│   ├── pre/     # e.g., tile_001.png
-│   ├── post/    # e.g., tile_001.png
-│   └── masks/   # e.g., tile_001.png (pixel values: 0, 1, 2, 3)
-└── val/
-    ├── pre/
-    ├── post/
-    └── masks/
+python cli.py --pre sample_images/pre_disaster.png --post sample_images/post_disaster.png
 ```
 
-#### 2. Run Training:
-```powershell
-.\.venv\Scripts\python.exe DL-SatelliteImagery\disaster_assessment\training\train_building_damage.py --data_dir data/damage_dataset --epochs 20 --batch_size 4 --lr 0.001
-```
+### All `cli.py` Options
 
-#### 3. Run Self-Contained Dry Run (Synthetic Data):
-```powershell
-.\.venv\Scripts\python.exe DL-SatelliteImagery\disaster_assessment\training\train_building_damage.py --dry_run
-```
-The dry run writes synthetic data and a throwaway checkpoint under `runs/dry_run/` (git-ignored). The checkpoint is flagged as synthetic, so the app refuses to load it as a trained model.
+| Flag | Description |
+| --- | --- |
+| `--pre <path>` | Path to pre-disaster satellite image (`PNG`, `JPG`, `TIF`) |
+| `--post <path>` | Path to post-disaster satellite image (`PNG`, `JPG`, `TIF`) |
+| `--single <path>` | Run single-image 6-class land-cover segmentation instead of pair analysis |
+| `--mode {auto,trained,estimated}` | Building damage mode (`auto` uses validated weights if present, otherwise heuristic) |
+| `--gsd <float>` | Ground Sample Distance in meters/pixel (enables `m²` and `km²` flood area output) |
+| `--geotiff <path>` | GeoTIFF raster file for CRS and GSD metadata extraction |
+| `--json-out <path>` | Save structured JSON analysis report |
+| `--save-vis <path>` | Save colorized visualization overlay image |
+| `--plain` | Force original plain-text output without Rich styling or ANSI colors |
+| `--export-svg <path>` | Export the rendered Rich terminal report as an SVG file |
 
----
+### Understanding the Terminal Report
 
-### 3.7 Running Automated Verification Tests
+1. **Header Banner**: Shows the project name, run timestamp, analysis mode (`Pixel-based`, `GSD-calibrated`, or `GeoTIFF`), and damage mode (`auto -> estimated`, `trained`, etc.).
+2. **Inputs Panel**: Displays middle-shortened `PRE` and `POST` paths, original and aligned image resolutions, GSD (or `n/a` if omitted), and optional GeoTIFF path.
+3. **Severity Panel**: Displays a `0–100` colored gauge bar (`LOW` green, `MODERATE` yellow, `HIGH` orange, `CRITICAL` red) and the formula explanation.
+   - If any model component is unavailable, a **`PARTIAL RESULT`** badge is shown along with which components were excluded from the score.
+   - When all models are validated and available, no `PARTIAL RESULT` badge is shown.
+4. **Metrics Table**: Reports each metric alongside its provenance badge:
+   - `[MEASURED]`: Produced by a validated trained model.
+   - `[HEURISTIC]`: Produced by rule-based/HSV heuristics.
+   - `[ESTIMATED]`: Produced by structural-change damage estimation.
+   - `[UNAVAILABLE]`: Component unavailable; shown dimmed as `-` instead of `0.00%`.
+5. **Model Status Table**: Lists `Change Detection`, `Flood Detection`, and `Building Damage`, their validation status (`READY`, `WEIGHTS MISSING`, `DEGENERATE`, etc.), inference mode, and expected/loaded weight filename (`siamese_unet.pth`, `flood_unet.pth`, `best_damage_model.pth`).
+6. **Warnings Panel**: Automatically hidden when there are zero warnings. Duplicate warnings are removed, paired `PRE`/`POST` alignment resize messages are merged into one line, and entries are grouped under **Alignment**, **Models**, and **Accuracy**.
 
-To run the complete automated test suite:
+### Example Commands
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest DL-SatelliteImagery/tests -v
-```
+# Geospatial-calibrated run with JSON and overlay outputs
+python cli.py `
+  --pre sample_images/real_satellite_samples/disaster_pre_sentinel2.png `
+  --post sample_images/real_satellite_samples/disaster_post_sentinel2.png `
+  --gsd 10.0 `
+  --json-out sentinel_report.json `
+  --save-vis sentinel_overlay.png
 
-```
-======================= 245 passed, 2 skipped (CPU, Python 3.11) =======================
-```
+# Generate an SVG snapshot of the styled terminal report
+python cli.py `
+  --pre sample_images/pre_disaster.png `
+  --post sample_images/post_disaster.png `
+  --export-svg disaster_report.svg
 
----
-
-### 3.8 Real Satellite Imagery Reference (`sample_images/`)
-
-The repository includes authentic **NASA MODIS / VIIRS** satellite imagery (250m GSD) ready for testing and demonstrations:
-
-| Directory / File | Description | Recommended Usage |
-| :--- | :--- | :--- |
-| **`pre_disaster.png` & `post_disaster.png`** | Pakistan Indus Valley flood (May vs. Sep 2022) | Primary pre/post disaster pair for Tab 2 |
-| **`landcover_tiles/`** | Cairo (urban), Punjab (farms), Amazon (forest), Florida Keys (water), Dubai (infrastructure) | Single-image analysis in Tab 1 |
-| **`disaster_pairs/`** | Australia bushfires, Amazon deforestation, Hurricane Milton, Turkey earthquake pairs | Before/after pairs for Tab 2 and Tab 3 |
-| **`real_satellite_samples/`** | Nile Delta, Turkey wildfires, Ganges Delta, VIIRS continental views | Large-scale evaluation & visual inspection |
-| **`geotiff_rasters/`** | Clean projected & geographic GeoTIFF rasters | Metric area calculations and CRS validation |
-
----
-
-### 3.9 Python API Usage Example
-
-```python
-from disaster_assessment.pipeline import DisasterAnalyzer
-import numpy as np
-from PIL import Image
-
-# Initialize analyzer (auto-detects CUDA / CPU)
-analyzer = DisasterAnalyzer()
-
-# Load image pair
-pre_image = np.array(Image.open("pre_event.jpg"))
-post_image = np.array(Image.open("post_event.jpg"))
-
-# Run full disaster assessment with ground resolution
-report = analyzer.analyze(
-    pre_image=pre_image,
-    post_image=post_image,
-    damage_mode="auto",         # "auto", "trained", or "estimated"
-    meters_per_pixel=0.5,       # 0.5 meters per pixel
-)
-
-# Print human-readable report & extract structured dictionary
-print(report.summary())
-results_dict = report.to_dict()
+# Single-image land-cover segmentation
+python cli.py --single sample_images/landcover_tiles/satellite_forest_canopy.jpg --save-vis forest_seg.png
 ```
 
 ---
 
-## 4. Troubleshooting & Common Issues
+## 3. Checking Feature Status & Model Validation (`DL-SatelliteImagery/cli.py`)
 
-| Error / Symptom | Probable Cause | Recommended Fix / Solution |
-| :--- | :--- | :--- |
-| `CUDA out of memory` | Batch size too large for 4GB VRAM. | Reduce `batch_size=2` or `batch_size=1` in `damage_model_config.yaml` or training script. |
-| `[WinError 1114] DLL initialization routine failed` | Using an external or unactivated Python environment. | Execute scripts using the repository's dedicated virtual environment: `.\.venv\Scripts\python.exe <script.py>` or activate via `.\.venv\Scripts\Activate.ps1`. |
-| `rasterio not installed` | Missing optional geospatial package. | Run `pip install rasterio --only-binary :all:`. Fallback to user `meters_per_pixel` input is always supported. |
-| `Trained damage model weights unavailable` | `best_damage_model.pth` not present. | Normal behavior in `auto` mode. The system automatically falls back to estimated structural change without crashing. |
-| `Torch not compiled with CUDA enabled` | Installed CPU-only wheel. | Reinstall PyTorch with explicit CUDA index: `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121`. |
-| `OSError: [Errno 98] / [WinError 10048] Address in use` | Port 7860 is occupied by another app. | Terminate previous process or launch on another port: `app.launch(server_port=7865)`. |
+Use the subcommand CLI inside `DL-SatelliteImagery/` to inspect module readiness and checkpoint validation:
+
+```powershell
+# Categorized feature-status tables with live counts per status
+python DL-SatelliteImagery/cli.py feature-status
+
+# Original plain-text feature table
+python DL-SatelliteImagery/cli.py feature-status --plain
+
+# Include raw JSON feature dictionary
+python DL-SatelliteImagery/cli.py feature-status --json
+
+# Inspect model checkpoint validation details
+python DL-SatelliteImagery/cli.py validate-models
+python DL-SatelliteImagery/cli.py validate-models --json
+```
+
+`feature-status` computes module counts dynamically across five categories:
+- **Core Engines**
+- **Geospatial and GIS**
+- **Remote Sensing**
+- **Training and Export**
+- **Experimental and Optional**
+
+You can also run pair analysis via the subcommand CLI to dump a full output directory (`report.json`, `summary.txt`, and all intermediate PNG maps):
+
+```powershell
+python DL-SatelliteImagery/cli.py analyze `
+  --pre sample_images/pre_disaster.png `
+  --post sample_images/post_disaster.png `
+  --gsd 0.5 `
+  --output results_dir/
+```
 
 ---
 
-> [!TIP]
-> All disaster assessment modules operate on both CUDA and CPU. For questions or enhancements, explore [`DL-SatelliteImagery/disaster_assessment/README.md`](./DL-SatelliteImagery/disaster_assessment/README.md).
+## 4. Training & Dry-Run Smoke Testing (`train_building_damage.py`)
 
+### Smoke Test (`--dry_run`)
+
+Run a 1-epoch synthetic smoke test to verify the training pipeline end-to-end:
+
+```powershell
+# Styled output with live per-epoch progress bar, results table, and summary
+python DL-SatelliteImagery/disaster_assessment/training/train_building_damage.py --dry_run
+
+# Plain-text output
+python DL-SatelliteImagery/disaster_assessment/training/train_building_damage.py --dry_run --plain
+```
+
+`--dry_run` displays a **`SMOKE TEST: synthetic data, metrics are not meaningful.`** banner and saves synthetic inputs/checkpoints to `runs/dry_run/` so real datasets and weights are untouched. Remember to delete `runs/dry_run/` after inspection:
+
+```powershell
+Remove-Item -Recurse -Force runs/dry_run
+```
+
+> Checkpoints produced with `--dry_run` are tagged `synthetic_data=True` and are automatically refused by `ModelValidator` at inference time.
+
+### Training on a Dataset
+
+```powershell
+python DL-SatelliteImagery/disaster_assessment/training/train_building_damage.py `
+  --data_dir data/damage_dataset `
+  --epochs 10 `
+  --batch_size 4 `
+  --lr 0.001
+```
+
+---
+
+## 5. Launching the Gradio Web Interface (`app.py`)
+
+```powershell
+python app.py
+```
+
+Open `http://127.0.0.1:7860` in your browser to upload `PRE`/`POST` image pairs, adjust GSD or GeoTIFF inputs, view overlays/heatmaps, and inspect severity breakdowns interactively.
+
+---
+
+## 6. Plain Mode, `NO_COLOR`, Pipes, and Narrow Terminals
+
+All three redesigned terminal commands share `DL-SatelliteImagery/disaster_assessment/terminal_ui.py` and automatically adapt to your environment:
+
+- **Plain mode (`--plain`)**: Reproduces the original pre-Rich text output.
+- **`NO_COLOR`**: Setting `NO_COLOR=1` disables Rich styling and falls back to plain text.
+- **Piped or redirected output (`> report.txt` or `| Out-String`)**: Non-TTY streams automatically receive the original plain-text format with no ANSI escape codes.
+- **Terminal width & encoding**: Styled output clamps to at most `100` columns, switches to compact columns below `72` columns, and automatically falls back to ASCII box borders (`+`, `-`, `|`) if the active Windows console encoding cannot represent Unicode box characters.
+
+---
+
+## 7. Running Tests & Linting
+
+```powershell
+# Full pytest suite
+.\.venv\Scripts\python.exe -m pytest
+
+# Targeted tests
+.\.venv\Scripts\python.exe -m pytest DL-SatelliteImagery/tests/test_terminal_ui.py
+.\.venv\Scripts\python.exe -m pytest DL-SatelliteImagery/tests/test_pipeline.py
+.\.venv\Scripts\python.exe -m pytest DL-SatelliteImagery/tests/test_feature_status.py
+
+# Lint check
+.\.venv\Scripts\python.exe -m ruff check .
+```
+
+---
+
+## 8. Troubleshooting
+
+- **Models show `WEIGHTS MISSING` / `PARTIAL RESULT`**: Place validated checkpoints (`siamese_unet.pth`, `flood_unet.pth`, `building_damage/best_damage_model.pth`) under `DL-SatelliteImagery/disaster_assessment/weights/`. Without them, change and flood detection remain `UNAVAILABLE` and building damage uses the structural-change heuristic.
+- **PyTorch DLL load error on Windows**: Run scripts with `.\.venv\Scripts\python.exe` rather than a global system Python installation.
+- **Need to redirect styled output or capture slides**: Use `--export-svg <path>` on `cli.py` instead of shell redirection, since shell redirection switches stdout to plain mode.

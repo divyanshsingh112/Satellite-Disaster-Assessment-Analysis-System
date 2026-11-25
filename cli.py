@@ -38,10 +38,19 @@ from PIL import Image  # noqa: E402
 
 try:
     from disaster_assessment.pipeline.disaster_analyzer import DisasterAnalyzer
+    from disaster_assessment.terminal_ui import (
+        create_console,
+        render_analysis_report,
+        should_use_plain,
+    )
 except ImportError:
     import importlib
     _mod = importlib.import_module("disaster_assessment.pipeline.disaster_analyzer")
     DisasterAnalyzer = getattr(_mod, "DisasterAnalyzer")
+    _ui_mod = importlib.import_module("disaster_assessment.terminal_ui")
+    create_console = getattr(_ui_mod, "create_console")
+    render_analysis_report = getattr(_ui_mod, "render_analysis_report")
+    should_use_plain = getattr(_ui_mod, "should_use_plain")
 except OSError as e:
     if "DLL" in str(e) or "c10" in str(e) or "1114" in str(e):
         print("\n[Environment Error] PyTorch dynamic library failed to load in current Python environment.")
@@ -67,6 +76,8 @@ def main():
     parser.add_argument("--geotiff", type=str, default=None, help="Optional path to GeoTIFF raster file for automatic CRS/GSD extraction")
     parser.add_argument("--json-out", type=str, default=None, help="Path to save output report as structured JSON")
     parser.add_argument("--save-vis", type=str, default=None, help="Path to save colorized visualization overlay image (PNG/JPG)")
+    parser.add_argument("--plain", action="store_true", help="Output original plain text without Rich styling")
+    parser.add_argument("--export-svg", type=str, default=None, help="Save rendered terminal report as an SVG file")
 
     args = parser.parse_args()
 
@@ -122,21 +133,27 @@ def main():
             print(f"Error: POST file not found: {args.post}")
             sys.exit(1)
 
-        print(f"[CLI] Loading PRE image:  {args.pre}")
-        print(f"[CLI] Loading POST image: {args.post}")
         pre_img = np.array(Image.open(args.pre).convert("RGB"))
         post_img = np.array(Image.open(args.post).convert("RGB"))
 
-        print(f"[CLI] Running Disaster Assessment (Mode: {args.mode}, GSD: {args.gsd} m/px)...")
-        report = analyzer.analyze(
-            pre_image=pre_img,
-            post_image=post_img,
-            damage_mode=args.mode,
-            meters_per_pixel=args.gsd,
-            geotiff_path=args.geotiff,
-        )
-
-        print("\n" + report.summary())
+        if should_use_plain(args.plain):
+            report = analyzer.analyze(
+                pre_image=pre_img,
+                post_image=post_img,
+                damage_mode=args.mode,
+                meters_per_pixel=args.gsd,
+                geotiff_path=args.geotiff,
+            )
+        else:
+            console, _ = create_console()
+            with console.status("Running Disaster Assessment..."):
+                report = analyzer.analyze(
+                    pre_image=pre_img,
+                    post_image=post_img,
+                    damage_mode=args.mode,
+                    meters_per_pixel=args.gsd,
+                    geotiff_path=args.geotiff,
+                )
 
         if args.save_vis:
             # Prefer damage overlay, fallback to heatmap or change map
@@ -149,12 +166,28 @@ def main():
             if vis_map is not None:
                 out_img = Image.fromarray(vis_map)
                 out_img.save(args.save_vis)
-                print(f"\n[CLI] Visualization overlay saved to: {args.save_vis}")
 
         if args.json_out:
             with open(args.json_out, "w", encoding="utf-8") as f:
                 json.dump(report.to_dict(), f, indent=2)
-            print(f"[CLI] JSON report saved to: {args.json_out}")
+
+        render_analysis_report(
+            report,
+            pre_path=args.pre,
+            post_path=args.post,
+            requested_mode=args.mode,
+            gsd=args.gsd,
+            geotiff_path=args.geotiff,
+            json_out=args.json_out,
+            save_vis=args.save_vis,
+            export_svg=args.export_svg,
+            expected_weights={
+                "change_detection": change_weights,
+                "flood_detection": flood_weights,
+                "building_damage": damage_weights,
+            },
+            plain=args.plain,
+        )
         return
 
     parser.print_help()
