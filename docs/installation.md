@@ -3,84 +3,46 @@
 ## Quick Start (Windows PowerShell)
 
 ```powershell
-# 1. Activate virtual environment
-.\\.venv\\Scripts\\Activate.ps1
+# 1. Create and activate virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
 # 2. Install core dependencies
 pip install -r requirements.txt
-
-# 3. Install in editable mode
-pip install -e .
-
-# 4. (Optional) Install geospatial extras
-pip install -e ".[geospatial]"
 ```
 
 ## Linux / macOS
 
 ```bash
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e .
 ```
 
-## Optional Dependency Groups
+## Optional Geospatial Dependencies
 
 ```bash
-# Core only (existing functionality)
-pip install -e .
-
-# Geospatial (shapely, geopandas, folium, scipy, sklearn)
+# Geospatial extras (shapely, geopandas, folium, scipy, scikit-learn)
 pip install -e ".[geospatial]"
-
-# SAR processing
-pip install -e ".[sar]"
-
-# RAG copilot
-pip install -e ".[rag]"
-
-# ONNX export/optimization
-pip install -e ".[optimization]"
-
-# Everything
-pip install -e ".[all]"
 ```
 
 ## Verify Installation
 
-```python
-# Check GPU
-import torch
-print(f"PyTorch: {torch.__version__}")
-print(f"CUDA: {torch.cuda.is_available()}")
-
-# Check feature status
-from disaster_assessment.feature_status import check_feature_status
-registry = check_feature_status()
-for feature in registry.get_all():
-    print(f"[{feature.status.value}] {feature.feature}")
-```
-
-## Run Tests
-
 ```powershell
-pytest
-# Expected: 228 passed, 2 skipped
-```
+# Check feature status via CLI
+.\.venv\Scripts\python.exe DL-SatelliteImagery/cli.py feature-status
 
-## Launch UI
-
-```powershell
-python app.py
-# Opens at http://localhost:7860
+# Run test suite and linter
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
 ```
 
 ## CLI Usage
 
 ```powershell
-# Disaster assessment
-python cli.py --pre pre.png --post post.png --gsd 250.0
+# Disaster assessment on a PRE/POST pair
+.\.venv\Scripts\python.exe cli.py --pre sample_images/pre_disaster.png --post sample_images/post_disaster.png --gsd 250.0
 
-# Single image segmentation
-python cli.py --single satellite.jpg
+# Single-image land-cover segmentation (heuristic)
+.\.venv\Scripts\python.exe cli.py --single sample_images/landcover_tiles/satellite_urban_city.jpg
 ```

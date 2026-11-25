@@ -2,148 +2,59 @@
 
 ## Overview
 
-The Satellite Disaster Assessment & Remote Sensing Intelligence Platform v3.0 is a modular, production-oriented geospatial disaster intelligence system built on the existing working foundation.
+The Satellite Disaster Assessment & Analysis System provides a modular command-line pipeline for validating, aligning, and analyzing pre- and post-disaster satellite imagery, computing geospatial impact areas and weighted severity scores, and rendering structured terminal and JSON reports.
 
-## Architecture Diagram
+## Pipeline Dataflow
 
-```
-INPUT DATA (GeoTIFF / PNG / JPG / SAR)
+```text
+INPUT DATA (PNG / JPG / GeoTIFF)
     |
 VALIDATION (ImageValidator)
     |
-DATA TYPE DETECTION (Optical / SAR / Multispectral)
+PREPROCESSING & ALIGNMENT (ImageAligner: resize, optional ORB alignment, normalization)
     |
-    +---> TILING (sliding window for large rasters)
+LAND-COVER & CHANGE ANALYTICS
+    +---> Land-cover estimation (HSV heuristic)
+    +---> Structural change & damage estimation (DamageMetrics)
+    +---> Land-cover transition matrix (LandChangeMetrics)
     |
-OPTICAL / SAR / MULTISPECTRAL PROCESSING
+GEOSPATIAL AREA & SEVERITY SCORING
+    +---> Area calculation (pixel-based, GSD-calibrated, or GeoTIFF CRS/geodesic)
+    +---> Severity engine (0-100 weighted score + LOW/MODERATE/HIGH/CRITICAL tier)
     |
-    +---> Preprocessing (normalization, speckle filter, band extraction)
-    |
-MODEL INFERENCE
-    +---> Land-cover segmentation (6-class U-Net)
-    +---> Change detection (Siamese U-Net)
-    +---> Flood detection (Flood U-Net)
-    +---> Building damage (4-class Siamese UNet)
-    +---> SAR-optical fusion (optional)
-    |
-PREDICTION BLENDING (Gaussian/uniform overlap averaging)
-    |
-GEOSPATIAL ANALYTICS
-    +---> Area calculation (pixel-based + geodesic)
-    +---> Land change metrics (6x6 transition matrix)
-    +---> Damage metrics
-    +---> Severity engine (configurable YAML weights)
-    |
-SPECTRAL ANALYTICS (optional)
-    +---> NDVI, NDWI, MNDWI, NBR, dNBR
-    |
-DEM ANALYSIS (optional)
-    +---> Terrain (slope, aspect, hillshade)
-    +---> Flood depth estimation
-    +---> Volume calculation
-    |
-VECTOR GENERATION
-    +---> Polygonize -> GeoJSON / Shapefile / KML
-    |
-DIGITAL TWIN STATE UPDATE
-    |
-RAG / COPILOT ACCESS
-    |
-UI + API + CLI + EXPORT
+RENDERING & CLI OUTPUT
+    +---> Visualization maps (OverlayRenderer, HeatmapGenerator, ComparisonRenderer)
+    +---> Structured report (DisasterReport.to_dict() JSON / DisasterReport.summary())
+    +---> Rich Terminal UI (terminal_ui.py) with plain, NO_COLOR, non-TTY, and ASCII fallbacks
 ```
 
-## Directory Structure
+## Core Directory Structure
 
+```text
+cli.py                                   # Main CLI entrypoint (--pre/--post, --single)
+DL-SatelliteImagery/
+├── cli.py                               # Subcommand CLI (analyze, feature-status)
+└── disaster_assessment/
+    ├── __init__.py
+    ├── terminal_ui.py                   # Shared Rich terminal UI & fallback helpers
+    ├── feature_status.py                # Feature availability registry
+    ├── preprocessing/
+    │   ├── image_validation.py          # Channel, dtype, dimension, and variance checks
+    │   └── image_alignment.py           # Dimension matching, ORB alignment, normalization
+    ├── analytics/
+    │   ├── area_calculator.py           # Pixel and relative area metrics
+    │   ├── geospatial_area.py           # GeoTIFF CRS/affine parsing & geodesic area
+    │   ├── damage_metrics.py            # Structural change damage estimation
+    │   ├── land_change_metrics.py       # 6x6 land-cover transition matrix
+    │   └── severity_engine.py           # Configurable 0-100 disaster severity scorer
+    ├── visualization/
+    │   ├── overlays.py                  # Land-cover, change, flood, and damage overlays
+    │   ├── heatmap.py                   # Combined hazard heatmap generation
+    │   └── comparison.py                # Side-by-side and grid views
+    ├── pipeline/
+    │   └── disaster_analyzer.py         # End-to-end DisasterAnalyzer & DisasterReport
+    └── configs/
+        ├── default.yaml                 # Default pipeline toggles
+        ├── pipeline.yaml                # Pipeline stage configuration
+        └── severity_config.yaml         # Severity weights & thresholds
 ```
-DL-SatelliteImagery/disaster_assessment/
-    __init__.py                  # Package init (v3.0.0)
-    feature_status.py            # Feature status tracking system
-    models/
-        base_unet.py             # Shared encoder/decoder (existing)
-        siamese_unet.py          # Change detection (existing)
-        flood_unet.py            # Flood segmentation (existing)
-        building_damage_model.py # 4-class damage (existing)
-        backbones/
-            base.py              # Backbone interface
-            registry.py          # Model registry
-            unet_backbone.py     # Base UNet adapter
-            foundation_backbone.py # SegFormer/Swin/Prithvi adapters
-        fusion/
-            sar_optical_fusion.py # SAR+Optical fusion U-Net
-            feature_fusion.py    # Early/feature-level fusion
-    preprocessing/
-        image_validation.py      # Image validation (existing)
-        image_alignment.py       # Image alignment (existing)
-        tiling/
-            tile_config.py       # Tiling configuration
-            tile_generator.py    # Sliding-window tile generator
-            blending.py          # Prediction overlap blending
-            raster_reader.py     # Large raster streaming reader
-        sar/
-            sentinel1.py         # Sentinel-1 processor
-            normalization.py     # SAR normalization
-            speckle_filter.py    # Median/Lee speckle filters
-            coherence.py         # SAR change features
-    analytics/
-        area_calculator.py       # Area calculation (existing)
-        damage_metrics.py        # Damage metrics (existing)
-        geospatial_area.py       # GeoTIFF area (existing)
-        land_change_metrics.py   # Land change (existing)
-        severity_engine.py       # Severity scoring (existing)
-        vectorization/
-            polygonizer.py       # Raster-to-vector conversion
-            geojson_export.py    # GeoJSON export
-            shapefile_export.py  # ESRI Shapefile export
-            kml_export.py        # KML export
-        spectral/
-            indices.py           # NDVI/NDWI/NBR/dNBR
-            band_mapping.py      # Sensor band mappings
-            validators.py        # Band validation
-        elevation/
-            dem_loader.py        # DEM loading
-            terrain_analysis.py  # Slope/aspect/hillshade
-            flood_depth.py       # Flood depth estimation
-            volume.py            # Water volume calculation
-    inference/
-        building_damage_inference.py # Dual-mode damage (existing)
-    visualization/
-        overlays.py              # Overlay rendering (existing)
-        heatmap.py               # Heatmap generation (existing)
-        comparison.py            # Comparison views (existing)
-        map_viewer.py            # Folium geospatial map viewer
-    training/
-        train_building_damage.py # Training pipeline (existing)
-    configs/
-        severity_config.yaml     # Severity weights (existing)
-        damage_model_config.yaml # Model config (existing)
-        default.yaml             # Centralized default config
-        models.yaml              # Model definitions
-        pipeline.yaml            # Pipeline stage config
-        data_sources.yaml        # External data provider config
-    copilot/
-        agent.py                 # RAG copilot agent
-        rag/
-            ingestion.py         # Document ingestion
-            retriever.py         # Document retrieval
-    data/
-        ingestion/
-            base.py              # Data provider interface
-            cache.py             # Data cache
-            scheduler.py         # Ingestion scheduler
-            sources/
-                sentinel.py      # Sentinel data provider
-                weather.py       # Weather data provider
-                mosdac.py        # MOSDAC provider
-                bhoonidhi.py     # Bhoonidhi provider
-    twin/
-        state.py                 # Digital twin state engine
-        entities.py              # Entity definitions
-        versioning.py            # State versioning
-    deployment/
-        export_onnx.py           # ONNX export/validation
-        benchmark.py             # Model benchmarking
-```
-
-## Backward Compatibility
-
-The full pytest suite (245 tests, 2 CUDA-only tests skipped on CPU) passes. The existing `DisasterAnalyzer`, `DisasterReport`, CLI, Gradio UI, and all public APIs are preserved without breaking changes.
